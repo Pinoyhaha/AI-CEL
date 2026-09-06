@@ -4,9 +4,10 @@ const prompt = document.getElementById("prompt");
 const send = document.getElementById("send");
 
 const MODEL_OPTIONS = [
-  ["DAN-L3-R1-8B", "DAN-L3-R1-8B"],
-  ["DAN-Qwen3-1.7B", "DAN-Qwen3-1.7B"],
-  ["UNfilteredAI-1B", "UNfilteredAI-1B"]
+  ["Venice Uncensored", "Venice Uncensored 🆓"],
+  ["DAN-L3-R1-8B", "DAN-L3-R1-8B (HF unavailable)"],
+  ["DAN-Qwen3-1.7B", "DAN-Qwen3-1.7B (HF unavailable)"],
+  ["UNfilteredAI-1B", "UNfilteredAI-1B (HF unavailable)"]
 ];
 
 const select = document.createElement("select");
@@ -37,34 +38,31 @@ async function loadModelAvailability() {
     const response = await fetch("/api/models", { cache: "no-store" });
     const data = await response.json().catch(() => ({}));
 
-    if (!response.ok) {
-      console.warn("Could not load model availability:", data.error || response.status);
-      return;
+    // The OpenRouter model is known from the server configuration.
+    const venice = select.querySelector('option[value="Venice Uncensored"]');
+    if (venice) {
+      venice.disabled = false;
+      venice.textContent = "Venice Uncensored 🆓";
     }
 
+    // Keep the original HF choices visible, but mark them unavailable
+    // when the user's enabled HF providers do not serve them.
     for (const option of select.options) {
+      if (option.value === "Venice Uncensored") continue;
       const info = data.models?.[option.value];
       if (!info) continue;
-
       option.disabled = !info.available;
       option.textContent = info.available
         ? option.value
-        : `${option.value} (unavailable)`;
+        : `${option.value} (HF unavailable)`;
     }
 
-    const firstAvailable = [...select.options].find((option) => !option.disabled);
-    if (firstAvailable) select.value = firstAvailable.value;
+    select.value = "Venice Uncensored";
   } catch (error) {
     console.warn("Model availability check failed:", error);
+    select.value = "Venice Uncensored";
   }
 }
-
-select.addEventListener("change", () => {
-  const option = select.selectedOptions[0];
-  if (option?.disabled) {
-    addMessage("assistant", `⚠️ ${select.value} is not currently available through your Hugging Face Inference Providers.`);
-  }
-});
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -73,7 +71,7 @@ form.addEventListener("submit", async (event) => {
 
   const selectedOption = select.selectedOptions[0];
   if (selectedOption?.disabled) {
-    addMessage("assistant", `⚠️ ${select.value} is currently unavailable through Hugging Face Inference Providers. Please choose an available model.`);
+    addMessage("assistant", `⚠️ ${select.value} is currently unavailable. Please choose Venice Uncensored.`);
     return;
   }
 
