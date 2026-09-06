@@ -11,20 +11,22 @@
     <header class="topbar">
       <div class="brand">
         <h1>🤖 AI-CEL</h1>
-        <p id="mode-subtitle">Unfiltered Chat</p>
+        <p id="mode-subtitle">🔥 Chatbot</p>
       </div>
       <div class="header-actions">
         <span class="status">● Online</span>
-        <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Open model menu" aria-expanded="false">☰</button>
+        <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Change AI model" aria-expanded="false">☰</button>
       </div>
     </header>
 
     <aside id="model-menu" class="model-menu" aria-hidden="true">
-      <div class="menu-title">Choose AI mode</div>
-      <button class="mode-option active" data-mode="Unfiltered Chat" type="button">🔥 <span><strong>Unfiltered Chat</strong><small>Open-ended chat</small></span></button>
-      <button class="mode-option" data-mode="Coding AI" type="button">💻 <span><strong>Coding AI</strong><small>Code & debugging</small></span></button>
-      <button class="mode-option" data-mode="Thinking AI" type="button">🧠 <span><strong>Thinking AI</strong><small>Deep reasoning</small></span></button>
-      <button class="mode-option" data-mode="None" type="button">⚪ <span><strong>None</strong><small>Use normal chat only</small></span></button>
+      <div class="menu-title">Change AI model</div>
+      <div class="model-selector">
+        <button class="mode-option active" data-mode="Unfiltered Chat" type="button"><span class="mode-icon">🔥</span><span><strong>Chatbot</strong><small>Unfiltered chat</small></span><span class="check">✓</span></button>
+        <button class="mode-option" data-mode="Coding AI" type="button"><span class="mode-icon">💻</span><span><strong>Coding AI</strong><small>Code & debugging</small></span><span class="check">✓</span></button>
+        <button class="mode-option" data-mode="Thinking AI" type="button"><span class="mode-icon">🧠</span><span><strong>Thinking AI</strong><small>Deep reasoning</small></span><span class="check">✓</span></button>
+        <button class="mode-option" data-mode="None" type="button"><span class="mode-icon">⚪</span><span><strong>None</strong><small>Normal chat</small></span><span class="check">✓</span></button>
+      </div>
     </aside>
 
     <section id="messages" class="messages" aria-live="polite">
