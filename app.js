@@ -32,10 +32,50 @@ function addMessage(role, text, extraClass = "") {
   return wrapper;
 }
 
+async function loadModelAvailability() {
+  try {
+    const response = await fetch("/api/models", { cache: "no-store" });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      console.warn("Could not load model availability:", data.error || response.status);
+      return;
+    }
+
+    for (const option of select.options) {
+      const info = data.models?.[option.value];
+      if (!info) continue;
+
+      option.disabled = !info.available;
+      option.textContent = info.available
+        ? option.value
+        : `${option.value} (unavailable)`;
+    }
+
+    const firstAvailable = [...select.options].find((option) => !option.disabled);
+    if (firstAvailable) select.value = firstAvailable.value;
+  } catch (error) {
+    console.warn("Model availability check failed:", error);
+  }
+}
+
+select.addEventListener("change", () => {
+  const option = select.selectedOptions[0];
+  if (option?.disabled) {
+    addMessage("assistant", `⚠️ ${select.value} is not currently available through your Hugging Face Inference Providers.`);
+  }
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const question = prompt.value.trim();
   if (!question || send.disabled) return;
+
+  const selectedOption = select.selectedOptions[0];
+  if (selectedOption?.disabled) {
+    addMessage("assistant", `⚠️ ${select.value} is currently unavailable through Hugging Face Inference Providers. Please choose an available model.`);
+    return;
+  }
 
   addMessage("user", question);
   prompt.value = "";
@@ -67,3 +107,5 @@ prompt.addEventListener("keydown", (event) => {
     form.requestSubmit();
   }
 });
+
+loadModelAvailability();
