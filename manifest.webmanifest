@@ -1,0 +1,19 @@
+{
+  "name": "AI-CEL",
+  "short_name": "AI-CEL",
+  "description": "AI-CEL multi-mode AI assistant",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#090b10",
+  "theme_color": "#090b10",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
