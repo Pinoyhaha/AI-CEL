@@ -1,16 +1,19 @@
 const HF_URL = "https://router.huggingface.co/v1/chat/completions";
-const HF_MODELS_URL = "https://router.huggingface.co/v1/models";
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const THINKING_MODEL = "Qwen/Qwen3-4B-Thinking-2507";
-const MODELS = {
+const HF_MODELS = {
   "DAN-L3-R1-8B": "UnfilteredAI/DAN-L3-R1-8B",
   "DAN-Qwen3-1.7B": "UnfilteredAI/DAN-Qwen3-1.7B",
   "UNfilteredAI-1B": "UnfilteredAI/UNfilteredAI-1B"
 };
 
-let modelCache = { expires: 0, ids: new Set() };
+// OpenRouter currently serves Venice Uncensored as a free endpoint.
+const OPENROUTER_MODELS = {
+  "Venice Uncensored": "cognitivecomputations/dolphin-mistral-24b-venice-edition:free"
+};
 
 function errorText(data) {
-  if (!data) return "Unknown Hugging Face error.";
+  if (!data) return "Unknown provider error.";
   if (typeof data === "string") return data;
   if (typeof data.error === "string") return data.error;
   if (typeof data.message === "string") return data.message;
@@ -20,70 +23,27 @@ function errorText(data) {
   return JSON.stringify(data);
 }
 
-async function getAvailableModelIds(token) {
-  const now = Date.now();
-  if (modelCache.expires > now && modelCache.ids.size) return modelCache.ids;
-
-  const response = await fetch(HF_MODELS_URL, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/json"
-    }
-  });
-
-  const raw = await response.text();
-  let data = {};
-  try {
-    data = raw ? JSON.parse(raw) : {};
-  } catch {
-    data = { error: raw || "Empty response from Hugging Face." };
-  }
-
-  if (!response.ok) {
-    const error = new Error(`Hugging Face HTTP ${response.status}: ${errorText(data)}`);
-    error.status = response.status;
-    throw error;
-  }
-
-  const ids = new Set(
-    Array.isArray(data?.data)
-      ? data.data.map((item) => item?.id).filter(Boolean)
-      : []
-  );
-
-  modelCache = { expires: now + 30000, ids };
-  return ids;
-}
-
-async function ensureModelAvailable(model, token) {
-  const ids = await getAvailableModelIds(token);
-  if (!ids.has(model)) {
-    const error = new Error(
-      `The requested model '${model}' is not supported by any provider you have enabled. ` +
-      `Choose an available model from the model selector, or deploy this model through a Hugging Face Inference Endpoint.`
-    );
-    error.status = 503;
-    error.code = "MODEL_UNAVAILABLE";
-    error.model = model;
-    throw error;
-  }
-}
-
-async function hfChat(model, messages, max_tokens, temperature) {
-  const token = process.env.HF_TOKEN;
+async function providerChat(url, token, model, messages, max_tokens, temperature, provider) {
   if (!token) {
-    const error = new Error("HF_TOKEN is not configured on the server.");
+    const error = new Error(`${provider} API key is not configured on the server.`);
     error.status = 500;
     throw error;
   }
 
-  const response = await fetch(HF_URL, {
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    Accept: "application/json"
+  };
+
+  if (provider === "OpenRouter") {
+    headers["HTTP-Referer"] = "https://ai-cel.vercel.app";
+    headers["X-Title"] = "AI-CEL";
+  }
+
+  const response = await fetch(url, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      Accept: "application/json"
-    },
+    headers,
     body: JSON.stringify({
       model,
       messages,
@@ -98,11 +58,11 @@ async function hfChat(model, messages, max_tokens, temperature) {
   try {
     data = raw ? JSON.parse(raw) : {};
   } catch {
-    data = { error: raw || "Empty response from Hugging Face." };
+    data = { error: raw || "Empty response from provider." };
   }
 
   if (!response.ok) {
-    const error = new Error(`Hugging Face HTTP ${response.status}: ${errorText(data)}`);
+    const error = new Error(`${provider} HTTP ${response.status}: ${errorText(data)}`);
     error.status = response.status;
     error.model = model;
     throw error;
@@ -110,12 +70,37 @@ async function hfChat(model, messages, max_tokens, temperature) {
 
   const content = data?.choices?.[0]?.message?.content;
   if (content == null) {
-    const error = new Error(`Hugging Face returned no text for model ${model}.`);
+    const error = new Error(`${provider} returned no text for model ${model}.`);
     error.status = 502;
+    error.model = model;
     throw error;
   }
 
   return String(content).trim();
+}
+
+async function hfChat(model, messages, max_tokens, temperature) {
+  return providerChat(
+    HF_URL,
+    process.env.HF_TOKEN,
+    model,
+    messages,
+    max_tokens,
+    temperature,
+    "Hugging Face"
+  );
+}
+
+async function openRouterChat(model, messages, max_tokens, temperature) {
+  return providerChat(
+    OPENROUTER_URL,
+    process.env.OPENROUTER_API_KEY,
+    model,
+    messages,
+    max_tokens,
+    temperature,
+    "OpenRouter"
+  );
 }
 
 async function thinkingPass(question) {
@@ -129,7 +114,7 @@ async function thinkingPass(question) {
 }
 
 async function finalPass(model, question, reasoning) {
-  return hfChat(model, [
+  return openRouterChat(model, [
     {
       role: "system",
       content: "You are the final-answer model. Answer the user's original request directly and naturally. Use the planning summary as additional context, but independently check it and correct mistakes. Do not claim you performed actions you did not perform."
@@ -153,17 +138,20 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "A question is required." });
     }
 
-    const token = process.env.HF_TOKEN;
-    if (!token) {
+    if (!process.env.HF_TOKEN) {
       return res.status(500).json({ error: "HF_TOKEN is not configured on the server." });
     }
 
-    const selectedName = MODELS[model] ? model : "DAN-L3-R1-8B";
-    const selectedModel = MODELS[selectedName];
+    if (!process.env.OPENROUTER_API_KEY) {
+      return res.status(500).json({
+        error: "OPENROUTER_API_KEY is not configured. AI-CEL now uses OpenRouter for the unfiltered model because the original Hugging Face models are not currently provider-enabled."
+      });
+    }
 
-    // Check both models before starting an expensive two-pass request.
-    await ensureModelAvailable(THINKING_MODEL, token);
-    await ensureModelAvailable(selectedModel, token);
+    const selectedName = OPENROUTER_MODELS[model]
+      ? model
+      : "Venice Uncensored";
+    const selectedModel = OPENROUTER_MODELS[selectedName];
 
     const reasoning = await thinkingPass(question.trim());
     const answer = await finalPass(
@@ -172,7 +160,11 @@ export default async function handler(req, res) {
       reasoning
     );
 
-    return res.status(200).json({ answer, model: selectedName });
+    return res.status(200).json({
+      answer,
+      model: selectedName,
+      provider: "OpenRouter"
+    });
   } catch (error) {
     console.error("AI-CEL API error:", error);
 
