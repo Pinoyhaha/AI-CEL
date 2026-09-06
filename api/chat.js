@@ -7,9 +7,9 @@ const HF_MODELS = {
   "UNfilteredAI-1B": "UnfilteredAI/UNfilteredAI-1B"
 };
 
-// OpenRouter currently serves Venice Uncensored as a free endpoint.
+// OpenRouter's current paid model uses the slug without :free.
 const OPENROUTER_MODELS = {
-  "Venice Uncensored": "cognitivecomputations/dolphin-mistral-24b-venice-edition:free"
+  "Venice Uncensored": "cognitivecomputations/dolphin-mistral-24b-venice-edition"
 };
 
 function errorText(data) {
@@ -144,7 +144,7 @@ export default async function handler(req, res) {
 
     if (!process.env.OPENROUTER_API_KEY) {
       return res.status(500).json({
-        error: "OPENROUTER_API_KEY is not configured. AI-CEL now uses OpenRouter for the unfiltered model because the original Hugging Face models are not currently provider-enabled."
+        error: "OPENROUTER_API_KEY is not configured. Add it to your Vercel environment variables."
       });
     }
 
