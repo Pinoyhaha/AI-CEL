@@ -9,12 +9,23 @@
 <body>
   <main class="app">
     <header class="topbar">
-      <div>
+      <div class="brand">
         <h1>🤖 AI-CEL</h1>
-        <p>AI chat powered by your server-side Hugging Face token</p>
+        <p id="mode-subtitle">Unfiltered Chat</p>
       </div>
-      <span class="status">● Online</span>
+      <div class="header-actions">
+        <span class="status">● Online</span>
+        <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Open model menu" aria-expanded="false">☰</button>
+      </div>
     </header>
+
+    <aside id="model-menu" class="model-menu" aria-hidden="true">
+      <div class="menu-title">Choose AI mode</div>
+      <button class="mode-option active" data-mode="Unfiltered Chat" type="button">🔥 <span><strong>Unfiltered Chat</strong><small>Open-ended chat</small></span></button>
+      <button class="mode-option" data-mode="Coding AI" type="button">💻 <span><strong>Coding AI</strong><small>Code & debugging</small></span></button>
+      <button class="mode-option" data-mode="Thinking AI" type="button">🧠 <span><strong>Thinking AI</strong><small>Deep reasoning</small></span></button>
+      <button class="mode-option" data-mode="None" type="button">⚪ <span><strong>None</strong><small>Use normal chat only</small></span></button>
+    </aside>
 
     <section id="messages" class="messages" aria-live="polite">
       <div class="message assistant">
