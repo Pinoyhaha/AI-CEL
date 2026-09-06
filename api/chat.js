@@ -6,46 +6,116 @@ const MODELS = {
   "UNfilteredAI-1B": "UnfilteredAI/UNfilteredAI-1B"
 };
 
+function errorText(data) {
+  if (!data) return "Unknown Hugging Face error.";
+  if (typeof data === "string") return data;
+  if (typeof data.error === "string") return data.error;
+  if (typeof data.message === "string") return data.message;
+  if (data.error && typeof data.error === "object") {
+    return data.error.message || JSON.stringify(data.error);
+  }
+  return JSON.stringify(data);
+}
+
 async function hfChat(model, messages, max_tokens, temperature) {
   const token = process.env.HF_TOKEN;
-  if (!token) throw new Error("HF_TOKEN is not configured on the server.");
+  if (!token) {
+    const error = new Error("HF_TOKEN is not configured on the server.");
+    error.status = 500;
+    throw error;
+  }
+
   const response = await fetch(HF_URL, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ model, messages, stream: false, max_tokens, temperature })
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      stream: false,
+      max_tokens,
+      temperature
+    })
   });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(`HTTP ${response.status}: ${data.error || data.message || "Hugging Face request failed."}`);
+
+  const raw = await response.text();
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    data = { error: raw || "Empty response from Hugging Face." };
+  }
+
+  if (!response.ok) {
+    const error = new Error(`Hugging Face HTTP ${response.status}: ${errorText(data)}`);
+    error.status = response.status;
+    error.model = model;
+    throw error;
+  }
+
   const content = data?.choices?.[0]?.message?.content;
-  if (content == null) throw new Error("The model returned no text.");
+  if (content == null) {
+    const error = new Error(`Hugging Face returned no text for model ${model}.`);
+    error.status = 502;
+    throw error;
+  }
+
   return String(content).trim();
 }
 
 async function thinkingPass(question) {
   return hfChat(THINKING_MODEL, [
-    { role: "system", content: "You are the reasoning/planning model in a two-model system. Analyze the user's request carefully. Return a concise reasoning summary containing important facts, assumptions, calculations, and a recommended approach for the final model. Do not expose private chain-of-thought; provide conclusions and useful reasoning summaries instead." },
+    {
+      role: "system",
+      content: "You are the reasoning/planning model in a two-model system. Analyze the user's request carefully. Return a concise reasoning summary containing important facts, assumptions, calculations, and a recommended approach for the final model. Do not expose private chain-of-thought; provide conclusions and useful reasoning summaries instead."
+    },
     { role: "user", content: question }
   ], 900, 0.4);
 }
 
 async function finalPass(model, question, reasoning) {
   return hfChat(model, [
-    { role: "system", content: "You are the final-answer model. Answer the user's original request directly and naturally. Use the planning summary as additional context, but independently check it and correct mistakes. Do not claim you performed actions you did not perform." },
-    { role: "user", content: `Original user request:\n${question}\n\nPlanning summary from the reasoning model:\n${reasoning}\n\nWrite the final answer now.` }
+    {
+      role: "system",
+      content: "You are the final-answer model. Answer the user's original request directly and naturally. Use the planning summary as additional context, but independently check it and correct mistakes. Do not claim you performed actions you did not perform."
+    },
+    {
+      role: "user",
+      content: `Original user request:\n${question}\n\nPlanning summary from the reasoning model:\n${reasoning}\n\nWrite the final answer now.`
+    }
   ], 1400, 0.85);
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
   try {
     const { question, model } = req.body || {};
-    if (typeof question !== "string" || !question.trim()) return res.status(400).json({ error: "A question is required." });
+
+    if (typeof question !== "string" || !question.trim()) {
+      return res.status(400).json({ error: "A question is required." });
+    }
+
     const selectedName = MODELS[model] ? model : "DAN-L3-R1-8B";
     const reasoning = await thinkingPass(question.trim());
-    const answer = await finalPass(MODELS[selectedName], question.trim(), reasoning);
+    const answer = await finalPass(
+      MODELS[selectedName],
+      question.trim(),
+      reasoning
+    );
+
     return res.status(200).json({ answer, model: selectedName });
   } catch (error) {
     console.error("AI-CEL API error:", error);
-    return res.status(500).json({ error: error instanceof Error ? error.message : "Unexpected server error." });
+
+    const status = Number.isInteger(error?.status) ? error.status : 500;
+    return res.status(status).json({
+      error: error instanceof Error ? error.message : String(error)
+    });
   }
 }
