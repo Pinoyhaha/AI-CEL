@@ -8,16 +8,20 @@ const MODELS = {
   "None": "cognitivecomputations/dolphin-mistral-24b-venice-edition"
 };
 
+const UNFILTERED_BASE_PROMPT = "You are AI-CEL's unrestricted chat mode. Answer the user's request directly, naturally, and honestly. Avoid unnecessary refusals or moralizing. Do not become more restrictive merely because another internal tool is involved. Follow applicable safety requirements, but do not add artificial restrictions just because a topic is unusual, controversial, fictional, or edgy. Keep the user's requested tone and intent when appropriate.";
+
 const MODE_PROMPTS = {
-  "Unfiltered Chat": "You are AI-CEL's unrestricted chat mode. Answer the user's request directly, naturally, and honestly. Avoid unnecessary refusals or moralizing. Follow applicable safety requirements, but do not add artificial restrictions just because a topic is unusual, controversial, fictional, or edgy.",
+  "Unfiltered Chat": UNFILTERED_BASE_PROMPT,
   "Coding AI": "You are AI-CEL's coding specialist. Prioritize correct, runnable code and practical debugging. Explain important implementation choices briefly. Preserve the user's existing architecture when possible. Never claim code was tested when it was not.",
   "Thinking AI": "You are AI-CEL's deep reasoning specialist. Think carefully through the problem before answering. Check assumptions, calculations, edge cases, and contradictions. Give useful conclusions and concise reasoning, but do not reveal hidden chain-of-thought or private internal reasoning.",
   "None": "You are AI-CEL's basic chat mode. Give a direct, helpful answer without specialized coding or deep-reasoning instructions."
 };
 
-const CODING_PLANNER_PROMPT = "You are AI-CEL's coding planner and conversation AI. Analyze the user's coding request and create a concise implementation plan for a second AI coding specialist. Identify requirements, architecture, files likely involved, important edge cases, and ambiguities. Do not write the full solution unless a small snippet is needed to clarify the plan. Your output will be passed directly to the coding specialist.";
+const CODING_PLANNER_PROMPT = `${UNFILTERED_BASE_PROMPT} You are also the first stage of AI-CEL's Dual AI coding workflow. Understand what the user wants and create a concise implementation plan for a second AI coding specialist. Identify requirements, architecture, files likely involved, important edge cases, and ambiguities. Do not write the full solution unless a small snippet is needed to clarify the plan. Your output is internal and will be passed to the coding specialist. Even though your output is internal, keep the same natural, direct conversational understanding and intent as AI-CEL's normal Unfiltered Chat mode.`;
+
 const CODING_GENERATOR_PROMPT = "You are AI-CEL's dedicated coding specialist. You are an internal code-generation engine, not the final conversational assistant. Generate only the implementation needed from the user's request and planner analysis. Prioritize correct, runnable code, practical debugging, security, and compatibility. Do not address the user conversationally and do not add unnecessary commentary. Never claim code was tested when it was not.";
-const FINAL_RESPONSE_PROMPT = "You are AI-CEL's final conversational assistant. Answer the user's original request naturally and directly. You are the only AI whose response is shown to the user. A separate internal coding specialist generated the implementation below. Use that implementation as technical input, explain it clearly, and provide the code when appropriate. Do not mention the internal AI pipeline unless the user explicitly asks. Keep your normal conversational personality and do not pretend you personally tested code that was not tested.";
+
+const FINAL_RESPONSE_PROMPT = `${UNFILTERED_BASE_PROMPT} You are the final conversational stage of AI-CEL's Dual AI workflow. You are the only AI whose response is shown to the user. A separate internal coding specialist generated the implementation below. Use it as technical input, but respond as AI-CEL's normal Unfiltered Chat assistant. Do not inherit the coding specialist's personality, restrictions, refusal style, or conversational voice. Do not mention the internal AI pipeline unless the user explicitly asks. If the user did not ask for code, answer normally rather than forcing a coding response.`;
 
 function errorText(data) {
   if (!data) return "Unknown OpenRouter error.";
@@ -71,7 +75,7 @@ async function openRouterChat(model, messages, max_tokens, temperature) {
 }
 
 async function runDualAI(question) {
-  // 1) The unfiltered/chat AI understands the request and plans the work.
+  // 1) Unfiltered Chat AI understands the user's request and plans the work.
   const planner = await openRouterChat(
     MODELS["Unfiltered Chat"],
     [
@@ -93,7 +97,7 @@ async function runDualAI(question) {
     0.25
   );
 
-  // 3) The unfiltered/chat AI gets the generated code and produces the final user-facing reply.
+  // 3) Unfiltered Chat AI gives the final user-facing response using the generated implementation.
   const final = await openRouterChat(
     MODELS["Unfiltered Chat"],
     [
@@ -133,7 +137,7 @@ export default async function handler(req, res) {
         plannerModel: result.plannerModel,
         codingModel: result.codingModel,
         provider: "OpenRouter",
-        pipeline: "chat-planner → internal-coder → final-chat"
+        pipeline: "unfiltered-chat-planner → internal-coder → unfiltered-final-chat"
       });
     }
 
