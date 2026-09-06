@@ -1,10 +1,13 @@
 const HF_URL = "https://router.huggingface.co/v1/chat/completions";
+const HF_MODELS_URL = "https://router.huggingface.co/v1/models";
 const THINKING_MODEL = "Qwen/Qwen3-4B-Thinking-2507";
 const MODELS = {
   "DAN-L3-R1-8B": "UnfilteredAI/DAN-L3-R1-8B",
   "DAN-Qwen3-1.7B": "UnfilteredAI/DAN-Qwen3-1.7B",
   "UNfilteredAI-1B": "UnfilteredAI/UNfilteredAI-1B"
 };
+
+let modelCache = { expires: 0, ids: new Set() };
 
 function errorText(data) {
   if (!data) return "Unknown Hugging Face error.";
@@ -15,6 +18,55 @@ function errorText(data) {
     return data.error.message || JSON.stringify(data.error);
   }
   return JSON.stringify(data);
+}
+
+async function getAvailableModelIds(token) {
+  const now = Date.now();
+  if (modelCache.expires > now && modelCache.ids.size) return modelCache.ids;
+
+  const response = await fetch(HF_MODELS_URL, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json"
+    }
+  });
+
+  const raw = await response.text();
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    data = { error: raw || "Empty response from Hugging Face." };
+  }
+
+  if (!response.ok) {
+    const error = new Error(`Hugging Face HTTP ${response.status}: ${errorText(data)}`);
+    error.status = response.status;
+    throw error;
+  }
+
+  const ids = new Set(
+    Array.isArray(data?.data)
+      ? data.data.map((item) => item?.id).filter(Boolean)
+      : []
+  );
+
+  modelCache = { expires: now + 30000, ids };
+  return ids;
+}
+
+async function ensureModelAvailable(model, token) {
+  const ids = await getAvailableModelIds(token);
+  if (!ids.has(model)) {
+    const error = new Error(
+      `The requested model '${model}' is not supported by any provider you have enabled. ` +
+      `Choose an available model from the model selector, or deploy this model through a Hugging Face Inference Endpoint.`
+    );
+    error.status = 503;
+    error.code = "MODEL_UNAVAILABLE";
+    error.model = model;
+    throw error;
+  }
 }
 
 async function hfChat(model, messages, max_tokens, temperature) {
@@ -101,10 +153,21 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "A question is required." });
     }
 
+    const token = process.env.HF_TOKEN;
+    if (!token) {
+      return res.status(500).json({ error: "HF_TOKEN is not configured on the server." });
+    }
+
     const selectedName = MODELS[model] ? model : "DAN-L3-R1-8B";
+    const selectedModel = MODELS[selectedName];
+
+    // Check both models before starting an expensive two-pass request.
+    await ensureModelAvailable(THINKING_MODEL, token);
+    await ensureModelAvailable(selectedModel, token);
+
     const reasoning = await thinkingPass(question.trim());
     const answer = await finalPass(
-      MODELS[selectedName],
+      selectedModel,
       question.trim(),
       reasoning
     );
@@ -115,7 +178,9 @@ export default async function handler(req, res) {
 
     const status = Number.isInteger(error?.status) ? error.status : 500;
     return res.status(status).json({
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
+      code: error?.code || "AI_CEL_ERROR",
+      model: error?.model || null
     });
   }
 }
