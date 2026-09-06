@@ -1,23 +1,51 @@
-export default async function handler(req,res){
-  if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});
-  const token=process.env.HF_TOKEN;
-  if(!token)return res.status(500).json({error:'HF_TOKEN is not configured on Vercel.'});
-  const message=typeof req.body?.message==='string'?req.body.message.trim():'';
-  if(!message)return res.status(400).json({error:'Message is required.'});
+const HF_URL = "https://router.huggingface.co/v1/chat/completions";
+const THINKING_MODEL = "Qwen/Qwen3-4B-Thinking-2507";
+const MODELS = {
+  "DAN-L3-R1-8B": "UnfilteredAI/DAN-L3-R1-8B",
+  "DAN-Qwen3-1.7B": "UnfilteredAI/DAN-Qwen3-1.7B",
+  "UNfilteredAI-1B": "UnfilteredAI/UNfilteredAI-1B"
+};
 
-  // Set your preferred Hugging Face model in Vercel as HF_MODEL.
-  const model=process.env.HF_MODEL||'HuggingFaceH4/zephyr-7b-beta';
-  const url=`https://router.huggingface.co/hf-inference/models/${encodeURIComponent(model)}`;
+async function hfChat(model, messages, max_tokens, temperature) {
+  const token = process.env.HF_TOKEN;
+  if (!token) throw new Error("HF_TOKEN is not configured on the server.");
+  const response = await fetch(HF_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ model, messages, stream: false, max_tokens, temperature })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${data.error || data.message || "Hugging Face request failed."}`);
+  const content = data?.choices?.[0]?.message?.content;
+  if (content == null) throw new Error("The model returned no text.");
+  return String(content).trim();
+}
 
-  try{
-    const response=await fetch(url,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({inputs:message,parameters:{max_new_tokens:512,return_full_text:false}})});
-    const data=await response.json().catch(()=>null);
-    if(!response.ok){const detail=data?.error||data?.message||`Hugging Face request failed (${response.status})`;return res.status(response.status).json({error:String(detail)});}
-    let reply='';
-    if(Array.isArray(data))reply=data[0]?.generated_text||'';
-    else if(data&&typeof data.generated_text==='string')reply=data.generated_text;
-    else if(typeof data?.text==='string')reply=data.text;
-    if(!reply)reply='The model returned an empty response.';
-    return res.status(200).json({reply,model});
-  }catch(error){return res.status(500).json({error:error?.message||'Server error'});}
+async function thinkingPass(question) {
+  return hfChat(THINKING_MODEL, [
+    { role: "system", content: "You are the reasoning/planning model in a two-model system. Analyze the user's request carefully. Return a concise reasoning summary containing important facts, assumptions, calculations, and a recommended approach for the final model. Do not expose private chain-of-thought; provide conclusions and useful reasoning summaries instead." },
+    { role: "user", content: question }
+  ], 900, 0.4);
+}
+
+async function finalPass(model, question, reasoning) {
+  return hfChat(model, [
+    { role: "system", content: "You are the final-answer model. Answer the user's original request directly and naturally. Use the planning summary as additional context, but independently check it and correct mistakes. Do not claim you performed actions you did not perform." },
+    { role: "user", content: `Original user request:\n${question}\n\nPlanning summary from the reasoning model:\n${reasoning}\n\nWrite the final answer now.` }
+  ], 1400, 0.85);
+}
+
+export default async function handler(req, res) {
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  try {
+    const { question, model } = req.body || {};
+    if (typeof question !== "string" || !question.trim()) return res.status(400).json({ error: "A question is required." });
+    const selectedName = MODELS[model] ? model : "DAN-L3-R1-8B";
+    const reasoning = await thinkingPass(question.trim());
+    const answer = await finalPass(MODELS[selectedName], question.trim(), reasoning);
+    return res.status(200).json({ answer, model: selectedName });
+  } catch (error) {
+    console.error("AI-CEL API error:", error);
+    return res.status(500).json({ error: error instanceof Error ? error.message : "Unexpected server error." });
+  }
 }

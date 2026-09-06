@@ -1,1 +1,5 @@
-{"name":"ai-cel","version":"1.0.0","private":true,"type":"module","scripts":{"dev":"vercel dev"}}
+{
+  "name": "ai-cel",
+  "private": true,
+  "version": "1.0.0"
+}
