@@ -16,7 +16,8 @@ const MODE_PROMPTS = {
 };
 
 const CODING_PLANNER_PROMPT = "You are AI-CEL's coding planner and conversation AI. Analyze the user's coding request and create a concise implementation plan for a second AI coding specialist. Identify requirements, architecture, files likely involved, important edge cases, and ambiguities. Do not write the full solution unless a small snippet is needed to clarify the plan. Your output will be passed directly to the coding specialist.";
-const CODING_GENERATOR_PROMPT = "You are AI-CEL's dedicated coding specialist. Generate the actual implementation based on the user's request and the planner's instructions. Prioritize correct, runnable code, practical debugging, security, and compatibility with the described project. Preserve existing architecture when possible. Return complete code when requested and explain important implementation choices briefly. Never claim code was tested when it was not.";
+const CODING_GENERATOR_PROMPT = "You are AI-CEL's dedicated coding specialist. You are an internal code-generation engine, not the final conversational assistant. Generate only the implementation needed from the user's request and planner analysis. Prioritize correct, runnable code, practical debugging, security, and compatibility. Do not address the user conversationally and do not add unnecessary commentary. Never claim code was tested when it was not.";
+const FINAL_RESPONSE_PROMPT = "You are AI-CEL's final conversational assistant. Answer the user's original request naturally and directly. You are the only AI whose response is shown to the user. A separate internal coding specialist generated the implementation below. Use that implementation as technical input, explain it clearly, and provide the code when appropriate. Do not mention the internal AI pipeline unless the user explicitly asks. Keep your normal conversational personality and do not pretend you personally tested code that was not tested.";
 
 function errorText(data) {
   if (!data) return "Unknown OpenRouter error.";
@@ -70,6 +71,7 @@ async function openRouterChat(model, messages, max_tokens, temperature) {
 }
 
 async function runDualAI(question) {
+  // 1) The unfiltered/chat AI understands the request and plans the work.
   const planner = await openRouterChat(
     MODELS["Unfiltered Chat"],
     [
@@ -80,6 +82,7 @@ async function runDualAI(question) {
     0.7
   );
 
+  // 2) Cohere is an internal coding engine. Its raw response is never shown directly.
   const generator = await openRouterChat(
     MODELS["Coding AI"],
     [
@@ -90,10 +93,25 @@ async function runDualAI(question) {
     0.25
   );
 
+  // 3) The unfiltered/chat AI gets the generated code and produces the final user-facing reply.
+  const final = await openRouterChat(
+    MODELS["Unfiltered Chat"],
+    [
+      { role: "system", content: FINAL_RESPONSE_PROMPT },
+      {
+        role: "user",
+        content: `Original user request:\n${question.trim()}\n\nInternal coding specialist output:\n${generator.answer}`
+      }
+    ],
+    6000,
+    0.75
+  );
+
   return {
-    answer: generator.answer,
+    answer: final.answer,
     plannerModel: planner.actualModel,
-    codingModel: generator.actualModel
+    codingModel: generator.actualModel,
+    finalModel: final.actualModel
   };
 }
 
@@ -111,10 +129,11 @@ export default async function handler(req, res) {
       return res.status(200).json({
         answer: result.answer,
         mode: selectedMode,
-        model: result.codingModel,
+        model: result.finalModel,
         plannerModel: result.plannerModel,
+        codingModel: result.codingModel,
         provider: "OpenRouter",
-        pipeline: "dual-ai"
+        pipeline: "chat-planner → internal-coder → final-chat"
       });
     }
 
