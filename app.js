@@ -9,8 +9,9 @@ const modeOptions = document.querySelectorAll(".mode-option");
 
 let selectedMode = localStorage.getItem("ai-cel-mode") || "Unfiltered Chat";
 const labels = {
-  "Unfiltered Chat": "🔥 Unfiltered Chat",
+  "Unfiltered Chat": "🔥 Chatbot",
   "Coding AI": "💻 Coding AI",
+  "Dual AI": "🤝 Dual AI",
   "Thinking AI": "🧠 Thinking AI",
   "None": "⚪ Normal Chat"
 };
@@ -19,11 +20,7 @@ function setMode(mode) {
   selectedMode = mode;
   localStorage.setItem("ai-cel-mode", mode);
   modeSubtitle.textContent = labels[mode] || mode;
-
-  modeOptions.forEach((option) => {
-    option.classList.toggle("active", option.dataset.mode === mode);
-  });
-
+  modeOptions.forEach((option) => option.classList.toggle("active", option.dataset.mode === mode));
   closeMenu();
 }
 
@@ -44,22 +41,47 @@ menuToggle.addEventListener("click", () => {
   else openMenu();
 });
 
-modeOptions.forEach((option) => {
-  option.addEventListener("click", () => setMode(option.dataset.mode));
-});
+modeOptions.forEach((option) => option.addEventListener("click", () => setMode(option.dataset.mode)));
 
 document.addEventListener("click", (event) => {
-  if (!modelMenu.contains(event.target) && !menuToggle.contains(event.target)) {
-    closeMenu();
-  }
+  if (!modelMenu.contains(event.target) && !menuToggle.contains(event.target)) closeMenu();
 });
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function renderMarkdown(text) {
+  const blocks = [];
+  let source = String(text).replace(/```([\w+-]*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    const id = `@@CODE${blocks.length}@@`;
+    blocks.push(`<pre class="code-block"><code class="language-${escapeHtml(lang || "text")}">${escapeHtml(code.replace(/^\n|\n$/g, ""))}</code></pre>`);
+    return id;
+  });
+
+  source = escapeHtml(source);
+  source = source.replace(/`([^`\n]+)`/g, "<code class=\"inline-code\">$1</code>");
+  source = source.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  source = source.replace(/\n/g, "<br>");
+
+  blocks.forEach((block, index) => {
+    source = source.replace(`@@CODE${index}@@`, block);
+  });
+  return source;
+}
 
 function addMessage(role, text, extraClass = "") {
   const wrapper = document.createElement("div");
   wrapper.className = `message ${role}`;
   const bubble = document.createElement("div");
   bubble.className = `bubble ${extraClass}`;
-  bubble.textContent = text;
+  if (role === "assistant" && extraClass !== "typing") bubble.innerHTML = renderMarkdown(text);
+  else bubble.textContent = text;
   wrapper.appendChild(bubble);
   messages.appendChild(wrapper);
   messages.scrollTop = messages.scrollHeight;
@@ -97,6 +119,7 @@ form.addEventListener("submit", async (event) => {
 
 function getThinkingText(mode) {
   if (mode === "Coding AI") return "💻 Writing / debugging…";
+  if (mode === "Dual AI") return "🤝 Planner AI → Coding AI…";
   if (mode === "Thinking AI") return "🧠 Thinking deeply…";
   if (mode === "None") return "💬 Generating…";
   return "🔥 Thinking…";
