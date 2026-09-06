@@ -1,19 +1,26 @@
-const HF_URL = "https://router.huggingface.co/v1/chat/completions";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const THINKING_MODEL = "Qwen/Qwen3-4B-Thinking-2507";
-const HF_MODELS = {
-  "DAN-L3-R1-8B": "UnfilteredAI/DAN-L3-R1-8B",
-  "DAN-Qwen3-1.7B": "UnfilteredAI/DAN-Qwen3-1.7B",
-  "UNfilteredAI-1B": "UnfilteredAI/UNfilteredAI-1B"
+
+// Three focused modes:
+// - Unfiltered Chat: Venice Uncensored (paid OpenRouter model)
+// - Coding AI: North Mini Code (currently free)
+// - Thinking AI: GLM 5.2 (currently free)
+const MODELS = {
+  "Unfiltered Chat": "cognitivecomputations/dolphin-mistral-24b-venice-edition",
+  "Coding AI": "cohere/north-mini-code:free",
+  "Thinking AI": "z-ai/glm-5.2:free"
 };
 
-// OpenRouter's current paid model uses the slug without :free.
-const OPENROUTER_MODELS = {
-  "Venice Uncensored": "cognitivecomputations/dolphin-mistral-24b-venice-edition"
+const MODE_PROMPTS = {
+  "Unfiltered Chat":
+    "You are AI-CEL's unrestricted chat mode. Answer the user's request directly, naturally, and honestly. Avoid unnecessary refusals or moralizing. Follow applicable safety requirements, but do not add artificial restrictions just because a topic is unusual, controversial, fictional, or edgy.",
+  "Coding AI":
+    "You are AI-CEL's coding specialist. Prioritize correct, runnable code and practical debugging. Explain important implementation choices briefly. When modifying a project, preserve the user's existing architecture unless there is a strong reason to change it. Never claim code was tested when it was not.",
+  "Thinking AI":
+    "You are AI-CEL's deep reasoning specialist. Think carefully through the problem before answering. Check assumptions, calculations, edge cases, and contradictions. Give the user the useful conclusions and reasoning, but do not reveal hidden chain-of-thought or private internal reasoning."
 };
 
 function errorText(data) {
-  if (!data) return "Unknown provider error.";
+  if (!data) return "Unknown OpenRouter error.";
   if (typeof data === "string") return data;
   if (typeof data.error === "string") return data.error;
   if (typeof data.message === "string") return data.message;
@@ -23,27 +30,23 @@ function errorText(data) {
   return JSON.stringify(data);
 }
 
-async function providerChat(url, token, model, messages, max_tokens, temperature, provider) {
+async function openRouterChat(model, messages, max_tokens, temperature) {
+  const token = process.env.OPENROUTER_API_KEY;
   if (!token) {
-    const error = new Error(`${provider} API key is not configured on the server.`);
+    const error = new Error("OPENROUTER_API_KEY is not configured on the server. Add it to your Vercel environment variables.");
     error.status = 500;
     throw error;
   }
 
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    "Content-Type": "application/json",
-    Accept: "application/json"
-  };
-
-  if (provider === "OpenRouter") {
-    headers["HTTP-Referer"] = "https://ai-cel.vercel.app";
-    headers["X-Title"] = "AI-CEL";
-  }
-
-  const response = await fetch(url, {
+  const response = await fetch(OPENROUTER_URL, {
     method: "POST",
-    headers,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "HTTP-Referer": "https://ai-cel.vercel.app",
+      "X-Title": "AI-CEL"
+    },
     body: JSON.stringify({
       model,
       messages,
@@ -58,11 +61,11 @@ async function providerChat(url, token, model, messages, max_tokens, temperature
   try {
     data = raw ? JSON.parse(raw) : {};
   } catch {
-    data = { error: raw || "Empty response from provider." };
+    data = { error: raw || "Empty response from OpenRouter." };
   }
 
   if (!response.ok) {
-    const error = new Error(`${provider} HTTP ${response.status}: ${errorText(data)}`);
+    const error = new Error(`OpenRouter HTTP ${response.status}: ${errorText(data)}`);
     error.status = response.status;
     error.model = model;
     throw error;
@@ -70,60 +73,16 @@ async function providerChat(url, token, model, messages, max_tokens, temperature
 
   const content = data?.choices?.[0]?.message?.content;
   if (content == null) {
-    const error = new Error(`${provider} returned no text for model ${model}.`);
+    const error = new Error(`OpenRouter returned no text for model ${model}.`);
     error.status = 502;
     error.model = model;
     throw error;
   }
 
-  return String(content).trim();
-}
-
-async function hfChat(model, messages, max_tokens, temperature) {
-  return providerChat(
-    HF_URL,
-    process.env.HF_TOKEN,
-    model,
-    messages,
-    max_tokens,
-    temperature,
-    "Hugging Face"
-  );
-}
-
-async function openRouterChat(model, messages, max_tokens, temperature) {
-  return providerChat(
-    OPENROUTER_URL,
-    process.env.OPENROUTER_API_KEY,
-    model,
-    messages,
-    max_tokens,
-    temperature,
-    "OpenRouter"
-  );
-}
-
-async function thinkingPass(question) {
-  return hfChat(THINKING_MODEL, [
-    {
-      role: "system",
-      content: "You are the reasoning/planning model in a two-model system. Analyze the user's request carefully. Return a concise reasoning summary containing important facts, assumptions, calculations, and a recommended approach for the final model. Do not expose private chain-of-thought; provide conclusions and useful reasoning summaries instead."
-    },
-    { role: "user", content: question }
-  ], 900, 0.4);
-}
-
-async function finalPass(model, question, reasoning) {
-  return openRouterChat(model, [
-    {
-      role: "system",
-      content: "You are the final-answer model. Answer the user's original request directly and naturally. Use the planning summary as additional context, but independently check it and correct mistakes. Do not claim you performed actions you did not perform."
-    },
-    {
-      role: "user",
-      content: `Original user request:\n${question}\n\nPlanning summary from the reasoning model:\n${reasoning}\n\nWrite the final answer now.`
-    }
-  ], 1400, 0.85);
+  return {
+    answer: String(content).trim(),
+    actualModel: data?.model || model
+  };
 }
 
 export default async function handler(req, res) {
@@ -132,37 +91,30 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { question, model } = req.body || {};
+    const { question, mode } = req.body || {};
 
     if (typeof question !== "string" || !question.trim()) {
       return res.status(400).json({ error: "A question is required." });
     }
 
-    if (!process.env.HF_TOKEN) {
-      return res.status(500).json({ error: "HF_TOKEN is not configured on the server." });
-    }
+    const selectedMode = MODELS[mode] ? mode : "Unfiltered Chat";
+    const selectedModel = MODELS[selectedMode];
+    const systemPrompt = MODE_PROMPTS[selectedMode];
 
-    if (!process.env.OPENROUTER_API_KEY) {
-      return res.status(500).json({
-        error: "OPENROUTER_API_KEY is not configured. Add it to your Vercel environment variables."
-      });
-    }
-
-    const selectedName = OPENROUTER_MODELS[model]
-      ? model
-      : "Venice Uncensored";
-    const selectedModel = OPENROUTER_MODELS[selectedName];
-
-    const reasoning = await thinkingPass(question.trim());
-    const answer = await finalPass(
+    const result = await openRouterChat(
       selectedModel,
-      question.trim(),
-      reasoning
+      [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: question.trim() }
+      ],
+      selectedMode === "Thinking AI" ? 2400 : 1800,
+      selectedMode === "Thinking AI" ? 0.5 : 0.8
     );
 
     return res.status(200).json({
-      answer,
-      model: selectedName,
+      answer: result.answer,
+      mode: selectedMode,
+      model: result.actualModel,
       provider: "OpenRouter"
     });
   } catch (error) {
