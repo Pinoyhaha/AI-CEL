@@ -4,7 +4,7 @@ const MODELS = {
   "Unfiltered Chat": "cognitivecomputations/dolphin-mistral-24b-venice-edition",
   "Coding AI": "cohere/north-mini-code:free",
   "Dual AI": "cohere/north-mini-code:free",
-  "Thinking AI": "z-ai/glm-5.2:free",
+  "Thinking AI": "qwen/qwen3-32b:free",
   "None": "cognitivecomputations/dolphin-mistral-24b-venice-edition"
 };
 
