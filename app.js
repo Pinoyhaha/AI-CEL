@@ -10,17 +10,14 @@ const modeOptions = document.querySelectorAll(".mode-option");
 let selectedMode = localStorage.getItem("ai-cel-mode") || "Unfiltered Chat";
 const labels = {
   "Unfiltered Chat": "🔥 Chatbot",
-  "Coding AI": "💻 Coding AI",
-  "Dual AI": "🤝 Dual AI",
-  "Thinking AI": "🧠 Thinking AI",
-  "None": "⚪ Normal Chat"
+  "Coding AI": "💻 Coding AI"
 };
 
 function setMode(mode) {
-  selectedMode = mode;
-  localStorage.setItem("ai-cel-mode", mode);
-  modeSubtitle.textContent = labels[mode] || mode;
-  modeOptions.forEach((option) => option.classList.toggle("active", option.dataset.mode === mode));
+  selectedMode = mode === "Coding AI" ? "Coding AI" : "Unfiltered Chat";
+  localStorage.setItem("ai-cel-mode", selectedMode);
+  modeSubtitle.textContent = labels[selectedMode];
+  modeOptions.forEach((option) => option.classList.toggle("active", option.dataset.mode === selectedMode));
   closeMenu();
 }
 
@@ -68,10 +65,7 @@ function renderMarkdown(text) {
   source = source.replace(/`([^`\n]+)`/g, "<code class=\"inline-code\">$1</code>");
   source = source.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   source = source.replace(/\n/g, "<br>");
-
-  blocks.forEach((block, index) => {
-    source = source.replace(`@@CODE${index}@@`, block);
-  });
+  blocks.forEach((block, index) => { source = source.replace(`@@CODE${index}@@`, block); });
   return source;
 }
 
@@ -118,11 +112,7 @@ form.addEventListener("submit", async (event) => {
 });
 
 function getThinkingText(mode) {
-  if (mode === "Coding AI") return "💻 Writing / debugging…";
-  if (mode === "Dual AI") return "🤝 Planner AI → Coding AI…";
-  if (mode === "Thinking AI") return "🧠 Thinking deeply…";
-  if (mode === "None") return "💬 Generating…";
-  return "🔥 Thinking…";
+  return mode === "Coding AI" ? "💻 Writing / debugging…" : "🔥 Thinking…";
 }
 
 prompt.addEventListener("keydown", (event) => {
