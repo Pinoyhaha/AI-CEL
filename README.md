@@ -1,16 +1,22 @@
 # AI-CEL
 
-A simple mobile-friendly AI chat frontend for Vercel with the Hugging Face token kept server-side.
+AI-CEL is a mobile-friendly AI chat frontend for Vercel with the Hugging Face token kept server-side.
+
+## Current AI
+
+- Provider: Hugging Face Inference Providers → Featherless AI
+- Model: `UnfilteredAI/DAN-L3-R1-8B`
+- Modes: Unfiltered Chat and Coding AI
+- API endpoint: `/api/chat`
 
 ## Environment variables
 
-Configure these in Vercel Project Settings → Environment Variables:
+Configure this in Vercel Project Settings → Environment Variables:
 
 - `HF_TOKEN` — your Hugging Face access token
-- `HF_MODEL` — optional model ID; defaults to `HuggingFaceH4/zephyr-7b-beta`
 
 Never put the real token in `index.html`, `app.js`, or GitHub.
 
 ## Deploy
 
-Import this repository into Vercel and add the environment variables before deploying.
+Import this repository into Vercel and add `HF_TOKEN` before deploying. Vercel will automatically serve the static frontend and the `api/chat.js` serverless function.
